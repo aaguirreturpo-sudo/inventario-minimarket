@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventario Minimarket</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;max-width:900px;margin:0 auto;padding:16px;color:#222;background:#fafafa}
+  h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:0 0 10px}
+  .card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:14px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{border-bottom:1px solid #eee;padding:7px;text-align:left}
+  th{background:#eef2fa}
+  .bajo{color:#b00020;font-weight:bold}
+  select,input,button{font-size:15px;padding:8px;margin:4px 6px 4px 0}
+  button{background:#1f6f43;color:#fff;border:0;border-radius:6px;cursor:pointer}
+  #msg{margin-top:8px;font-weight:bold}
+  .ok{color:#1f6f43} .err{color:#b00020}
+</style>
+</head>
+<body>
+<h1>Inventario Minimarket</h1>
+<div>Prototipo del Proyecto Integrador TIC</div>
+
+<div class="card">
+  <h2>Registrar venta</h2>
+  <select id="producto"></select>
+  <input id="cantidad" type="number" min="1" value="1" style="width:90px">
+  <button id="vender">Registrar venta</button>
+  <div id="msg"></div>
+</div>
+
+<div class="card">
+  <h2>Productos y stock</h2>
+  <table><thead><tr><th>Código</th><th>Producto</th><th>Precio (S/)</th><th>Stock</th><th>Mínimo</th><th>Estado</th></tr></thead>
+  <tbody id="tbProductos"></tbody></table>
+</div>
+
+<div class="card">
+  <h2>Lotes por vencer (próximos 7 días)</h2>
+  <table><thead><tr><th>Código</th><th>Producto</th><th>Cantidad</th><th>Vence</th></tr></thead>
+  <tbody id="tbLotes"></tbody></table>
+</div>
+
+<script>
+const SUPABASE_URL = "https://dzgsftyryllgsuuvwlep.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ivxvReo5oGykxP64yo-WtA_dz7v1fH5";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let productos = [];
+
+function msg(t, ok){ const m=document.getElementById("msg"); m.textContent=t; m.className=ok?"ok":"err"; }
+
+async function cargar(){
+  const p = await db.from("productos").select("*").eq("activo", true).order("nombre");
+  if(p.error){ msg("Error al leer productos: "+p.error.message, false); return; }
+  productos = p.data;
+  document.getElementById("producto").innerHTML = productos.map(x=>`<option value="${x.id}">${x.nombre} (stock ${x.stock_actual})</option>`).join("");
+  document.getElementById("tbProductos").innerHTML = productos.map(x=>{
+    const bajo = x.stock_actual <= x.stock_minimo;
+    return `<tr><td>${x.codigo}</td><td>${x.nombre}</td><td>${Number(x.precio_venta).toFixed(2)}</td><td>${x.stock_actual}</td><td>${x.stock_minimo}</td><td class="${bajo?"bajo":""}">${bajo?"STOCK BAJO":"OK"}</td></tr>`;
+  }).join("");
+  const l = await db.from("v_lotes_por_vencer").select("*").order("fecha_vencimiento");
+  document.getElementById("tbLotes").innerHTML = (l.data||[]).map(x=>`<tr><td>${x.codigo}</td><td>${x.nombre}</td><td>${x.cantidad}</td><td>${x.fecha_vencimiento}</td></tr>`).join("") || `<tr><td colspan="4">Sin lotes próximos a vencer</td></tr>`;
+}
+
+document.getElementById("vender").onclick = async () => {
+  const id = Number(document.getElementById("producto").value);
+  const cant = Number(document.getElementById("cantidad").value);
+  const prod = productos.find(x=>x.id===id);
+  if(!prod || cant < 1){ msg("Datos inválidos", false); return; }
+  const v = await db.from("ventas").insert({ usuario:"cajero1", total: prod.precio_venta*cant }).select().single();
+  if(v.error){ msg("Error al crear la venta: "+v.error.message, false); return; }
+  const d = await db.from("detalle_venta").insert({ venta_id:v.data.id, producto_id:id, cantidad:cant, precio_unitario:prod.precio_venta });
+  if(d.error){ msg("Venta rechazada: no hay stock suficiente (o error: "+d.error.message+")", false); }
+  else { msg("Venta registrada: "+cant+" x "+prod.nombre, true); }
+  cargar();
+};
+cargar();
+</script>
+</body>
+</html>
