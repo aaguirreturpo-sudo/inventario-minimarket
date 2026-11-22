@@ -1,0 +1,92 @@
+{
+  "name": "Inventario Minimarket - Alertas",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [ { "field": "minutes", "minutesInterval": 15 } ] } },
+      "name": "Cada 15 minutos",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select id, codigo, nombre, stock_actual, stock_minimo from productos where activo and stock_actual <= stock_minimo and (ultima_alerta is null or ultima_alerta < now() - interval '24 hours');",
+        "options": {}
+      },
+      "name": "Stock bajo",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "=ALERTA de stock bajo: {{ $json.nombre }} ({{ $json.codigo }}). Quedan {{ $json.stock_actual }} unidades; el mínimo es {{ $json.stock_minimo }}.",
+        "additionalFields": {}
+      },
+      "name": "Alerta Telegram stock",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "=update productos set ultima_alerta = now() where id = {{ $('Stock bajo').item.json.id }};",
+        "options": {}
+      },
+      "name": "Marcar alerta",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [660, 0]
+    },
+    {
+      "parameters": { "rule": { "interval": [ { "field": "days", "triggerAtHour": 7 } ] } },
+      "name": "Cada día 07:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 260]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from v_lotes_por_vencer order by fecha_vencimiento;",
+        "options": {}
+      },
+      "name": "Lotes por vencer",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [220, 260]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst lineas = items.map(i => '- ' + i.json.nombre + ': ' + i.json.cantidad + ' unidades, vence ' + i.json.fecha_vencimiento);\nreturn [{ json: { texto: 'Productos por vencer (proximos 7 dias):\\n' + lineas.join('\\n') } }];"
+      },
+      "name": "Armar resumen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 260]
+    },
+    {
+      "parameters": {
+        "chatId": "TU_CHAT_ID",
+        "text": "={{ $json.texto }}",
+        "additionalFields": {}
+      },
+      "name": "Resumen Telegram vencimientos",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,            
+      "position": [660, 260]
+    }
+  ],
+  "connections": {
+    "Cada 15 minutos": { "main": [ [ { "node": "Stock bajo", "type": "main", "index": 0 } ] ] },
+    "Stock bajo": { "main": [ [ { "node": "Alerta Telegram stock", "type": "main", "index": 0 } ] ] },
+    "Alerta Telegram stock": { "main": [ [ { "node": "Marcar alerta", "type": "main", "index": 0 } ] ] },
+    "Cada día 07:00": { "main": [ [ { "node": "Lotes por vencer", "type": "main", "index": 0 } ] ] },
+    "Lotes por vencer": { "main": [ [ { "node": "Armar resumen", "type": "main", "index": 0 } ] ] },
+    "Armar resumen": { "main": [ [ { "node": "Resumen Telegram vencimientos", "type": "main", "index": 0 } ] ] }
+  },
+  "settings": { "executionOrder": "v1" }
+}
